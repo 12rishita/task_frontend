@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 
 const statusLabels = {
   todo: "Todo",
   in_progress: "In progress",
   review: "Review",
   done: "Done",
+};
+
+const viewPaths = {
+  dashboard: "/dashboard",
+  projects: "/projects",
+  tasks: "/tasks",
+  admin: "/admin",
 };
 
 const initialProjectForm = { name: "", description: "" };
@@ -117,8 +125,8 @@ function AuthScreen({ onAuthenticated }) {
 }
 
 export default function App() {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
-  const [view, setView] = useState("dashboard");
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -192,7 +200,7 @@ export default function App() {
     setProjects([]);
     setTasks([]);
     setDashboard({ summary: { total: 0, overdue: 0, done: 0, inProgress: 0 }, tasks: [] });
-    setView("dashboard");
+    navigate("/login", { replace: true });
   }
 
   async function refreshAll() {
@@ -246,14 +254,165 @@ export default function App() {
     await refreshAll();
   }
 
+  function handleAuthenticated(nextUser) {
+    setUser(nextUser);
+    navigate(viewPaths.dashboard, { replace: true });
+  }
+
   if (loading) {
     return <main className="loading-shell">Loading workspace...</main>;
   }
 
-  if (!user) {
-    return <AuthScreen onAuthenticated={setUser} />;
-  }
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/login" element={user ? <Navigate to={viewPaths.dashboard} replace /> : <AuthScreen onAuthenticated={handleAuthenticated} />} />
+      <Route
+        path="/dashboard"
+        element={
+          user ? (
+            <AppShell
+              dashboard={dashboard}
+              deleteTask={deleteTask}
+              handleLogout={handleLogout}
+              memberForm={memberForm}
+              projectForm={projectForm}
+              projects={projects}
+              setMemberForm={setMemberForm}
+              setProjectForm={setProjectForm}
+              setStatusFilter={setStatusFilter}
+              setTaskForm={setTaskForm}
+              statusFilter={statusFilter}
+              submitMember={submitMember}
+              submitProject={submitProject}
+              submitTask={submitTask}
+              taskForm={taskForm}
+              tasks={tasks}
+              updateTaskStatus={updateTaskStatus}
+              user={user}
+              users={users}
+              view="dashboard"
+            />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/projects"
+        element={
+          user ? (
+            <AppShell
+              dashboard={dashboard}
+              deleteTask={deleteTask}
+              handleLogout={handleLogout}
+              memberForm={memberForm}
+              projectForm={projectForm}
+              projects={projects}
+              setMemberForm={setMemberForm}
+              setProjectForm={setProjectForm}
+              setStatusFilter={setStatusFilter}
+              setTaskForm={setTaskForm}
+              statusFilter={statusFilter}
+              submitMember={submitMember}
+              submitProject={submitProject}
+              submitTask={submitTask}
+              taskForm={taskForm}
+              tasks={tasks}
+              updateTaskStatus={updateTaskStatus}
+              user={user}
+              users={users}
+              view="projects"
+            />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/tasks"
+        element={
+          user ? (
+            <AppShell
+              dashboard={dashboard}
+              deleteTask={deleteTask}
+              handleLogout={handleLogout}
+              memberForm={memberForm}
+              projectForm={projectForm}
+              projects={projects}
+              setMemberForm={setMemberForm}
+              setProjectForm={setProjectForm}
+              setStatusFilter={setStatusFilter}
+              setTaskForm={setTaskForm}
+              statusFilter={statusFilter}
+              submitMember={submitMember}
+              submitProject={submitProject}
+              submitTask={submitTask}
+              taskForm={taskForm}
+              tasks={tasks}
+              updateTaskStatus={updateTaskStatus}
+              user={user}
+              users={users}
+              view="tasks"
+            />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+      <Route
+        path="/admin"
+        element={user ? <AppShell
+          dashboard={dashboard}
+          deleteTask={deleteTask}
+          handleLogout={handleLogout}
+          memberForm={memberForm}
+          projectForm={projectForm}
+          projects={projects}
+          setMemberForm={setMemberForm}
+          setProjectForm={setProjectForm}
+          setStatusFilter={setStatusFilter}
+          setTaskForm={setTaskForm}
+          statusFilter={statusFilter}
+          submitMember={submitMember}
+          submitProject={submitProject}
+          submitTask={submitTask}
+          taskForm={taskForm}
+          tasks={tasks}
+          updateTaskStatus={updateTaskStatus}
+          user={user}
+          users={users}
+          view="admin"
+        /> : <Navigate to="/login" replace />}
+      />
+      <Route path="*" element={<Navigate to={user ? viewPaths.dashboard : "/login"} replace />} />
+    </Routes>
+  );
+}
 
+function AppShell({
+  dashboard,
+  deleteTask,
+  handleLogout,
+  memberForm,
+  projectForm,
+  projects,
+  setMemberForm,
+  setProjectForm,
+  setStatusFilter,
+  setTaskForm,
+  statusFilter,
+  submitMember,
+  submitProject,
+  submitTask,
+  taskForm,
+  tasks,
+  updateTaskStatus,
+  user,
+  users,
+  view,
+}) {
+  const navigate = useNavigate();
   const summary = dashboard.summary;
   const visibleTasks = statusFilter ? tasks.filter((task) => task.status === statusFilter) : tasks;
   const completion = summary.total ? Math.round((summary.done / summary.total) * 100) : 0;
@@ -270,7 +429,7 @@ export default function App() {
         </div>
         <nav className="nav">
           {["dashboard", "projects", "tasks", ...(user.role === "admin" ? ["admin"] : [])].map((item) => (
-            <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>
+            <button key={item} className={view === item ? "active" : ""} onClick={() => navigate(viewPaths[item])}>
               {item === "admin" ? "Admin" : item[0].toUpperCase() + item.slice(1)}
             </button>
           ))}

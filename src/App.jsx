@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import api, { clearStoredToken, getStoredToken, setStoredToken } from "./api";
 
 const statusLabels = {
   todo: "Todo",
@@ -27,24 +28,6 @@ const initialTaskForm = {
   description: "",
 };
 
-async function api(path, options = {}) {
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-  const response = await fetch(`${baseUrl}${path}`, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    const error = new Error(data.error || "Request failed");
-    error.status = response.status;
-    throw error;
-  }
-  return data;
-}
-
 function empty(message) {
   return (
     <div className="empty">
@@ -63,10 +46,11 @@ function AuthScreen({ onAuthenticated }) {
     event.preventDefault();
     setError("");
     try {
-      const result = await api(`/api/${mode}`, { method: "POST", body: form });
-      onAuthenticated(result.user);
+      const { data } = await api.post(`/api/${mode}`, form);
+      setStoredToken(data.token);
+      onAuthenticated(data.user);
     } catch (err) {
-      setError(err.message);
+      setError(err.response?.data?.error || err.message);
     }
   }
 
@@ -139,12 +123,24 @@ export default function App() {
 
   useEffect(() => {
     async function boot() {
+      const token = getStoredToken();
+      if (!token) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
       try {
-        const { user: current } = await api("/api/me");
+        const { data } = await api.get("/api/me");
+        const current = data.user;
         if (current) {
           setUser(current);
+        } else {
+          clearStoredToken();
+          setUser(null);
         }
       } catch {
+        clearStoredToken();
         setUser(null);
       } finally {
         setLoading(false);
@@ -160,29 +156,29 @@ export default function App() {
     async function refreshData() {
       try {
         const [usersPayload, projectsPayload, tasksPayload, dashboardPayload] = await Promise.all([
-          api("/api/users"),
-          api("/api/projects"),
-          api("/api/tasks"),
-          api("/api/dashboard"),
+          api.get("/api/users"),
+          api.get("/api/projects"),
+          api.get("/api/tasks"),
+          api.get("/api/dashboard"),
         ]);
 
-        setUsers(usersPayload.users);
-        setProjects(projectsPayload.projects);
-        setTasks(tasksPayload.tasks);
-        setDashboard(dashboardPayload);
+        setUsers(usersPayload.data.users);
+        setProjects(projectsPayload.data.projects);
+        setTasks(tasksPayload.data.tasks);
+        setDashboard(dashboardPayload.data);
 
         setMemberForm((previous) => ({
           ...previous,
-          projectId: previous.projectId || projectsPayload.projects[0]?.id || "",
-          userId: previous.userId || usersPayload.users[0]?.id || "",
+          projectId: previous.projectId || projectsPayload.data.projects[0]?.id || "",
+          userId: previous.userId || usersPayload.data.users[0]?.id || "",
         }));
 
         setTaskForm((previous) => ({
           ...previous,
-          projectId: previous.projectId || projectsPayload.projects[0]?.id || "",
+          projectId: previous.projectId || projectsPayload.data.projects[0]?.id || "",
         }));
       } catch (error) {
-        if (error.status === 401) {
+        if (error.response?.status === 401) {
           handleLogout(true);
         }
       }
@@ -193,8 +189,9 @@ export default function App() {
 
   async function handleLogout(skipRequest = false) {
     if (!skipRequest) {
-      await api("/api/logout", { method: "POST" });
+      await api.post("/api/logout");
     }
+    clearStoredToken();
     setUser(null);
     setUsers([]);
     setProjects([]);
@@ -205,20 +202,20 @@ export default function App() {
 
   async function refreshAll() {
     const [usersPayload, projectsPayload, tasksPayload, dashboardPayload] = await Promise.all([
-      api("/api/users"),
-      api("/api/projects"),
-      api("/api/tasks"),
-      api("/api/dashboard"),
+      api.get("/api/users"),
+      api.get("/api/projects"),
+      api.get("/api/tasks"),
+      api.get("/api/dashboard"),
     ]);
-    setUsers(usersPayload.users);
-    setProjects(projectsPayload.projects);
-    setTasks(tasksPayload.tasks);
-    setDashboard(dashboardPayload);
+    setUsers(usersPayload.data.users);
+    setProjects(projectsPayload.data.projects);
+    setTasks(tasksPayload.data.tasks);
+    setDashboard(dashboardPayload.data);
   }
 
   async function submitProject(event) {
     event.preventDefault();
-    await api("/api/projects", { method: "POST", body: projectForm });
+    await api.post("/api/projects", projectForm);
     setProjectForm(initialProjectForm);
     await refreshAll();
   }
@@ -229,7 +226,7 @@ export default function App() {
       window.alert("Create a project and make sure a user is selected before adding a member.");
       return;
     }
-    await api("/api/project-members", { method: "POST", body: memberForm });
+    await api.post("/api/project-members", memberForm);
     await refreshAll();
   }
 
@@ -239,18 +236,18 @@ export default function App() {
       window.alert("Create a project first, then create a task.");
       return;
     }
-    await api("/api/tasks", { method: "POST", body: taskForm });
+    await api.post("/api/tasks", taskForm);
     setTaskForm((previous) => ({ ...initialTaskForm, projectId: previous.projectId }));
     await refreshAll();
   }
 
   async function updateTaskStatus(id, status) {
-    await api(`/api/tasks/${id}`, { method: "PATCH", body: { status } });
+    await api.patch(`/api/tasks/${id}`, { status });
     await refreshAll();
   }
 
   async function deleteTask(id) {
-    await api(`/api/tasks/${id}`, { method: "DELETE" });
+    await api.delete(`/api/tasks/${id}`);
     await refreshAll();
   }
 
@@ -270,7 +267,7 @@ export default function App() {
       <Route
         path="/dashboard"
         element={
-          user ? (
+          <ProtectedRoute user={user}>
             <AppShell
               dashboard={dashboard}
               deleteTask={deleteTask}
@@ -293,15 +290,13 @@ export default function App() {
               users={users}
               view="dashboard"
             />
-          ) : (
-            <Navigate to="/login" replace />
-          )
+          </ProtectedRoute>
         }
       />
       <Route
         path="/projects"
         element={
-          user ? (
+          <ProtectedRoute user={user}>
             <AppShell
               dashboard={dashboard}
               deleteTask={deleteTask}
@@ -324,15 +319,13 @@ export default function App() {
               users={users}
               view="projects"
             />
-          ) : (
-            <Navigate to="/login" replace />
-          )
+          </ProtectedRoute>
         }
       />
       <Route
         path="/tasks"
         element={
-          user ? (
+          <ProtectedRoute user={user}>
             <AppShell
               dashboard={dashboard}
               deleteTask={deleteTask}
@@ -355,39 +348,55 @@ export default function App() {
               users={users}
               view="tasks"
             />
-          ) : (
-            <Navigate to="/login" replace />
-          )
+          </ProtectedRoute>
         }
       />
       <Route
         path="/admin"
-        element={user ? <AppShell
-          dashboard={dashboard}
-          deleteTask={deleteTask}
-          handleLogout={handleLogout}
-          memberForm={memberForm}
-          projectForm={projectForm}
-          projects={projects}
-          setMemberForm={setMemberForm}
-          setProjectForm={setProjectForm}
-          setStatusFilter={setStatusFilter}
-          setTaskForm={setTaskForm}
-          statusFilter={statusFilter}
-          submitMember={submitMember}
-          submitProject={submitProject}
-          submitTask={submitTask}
-          taskForm={taskForm}
-          tasks={tasks}
-          updateTaskStatus={updateTaskStatus}
-          user={user}
-          users={users}
-          view="admin"
-        /> : <Navigate to="/login" replace />}
+        element={
+          <ProtectedRoute user={user}>
+            <AppShell
+              dashboard={dashboard}
+              deleteTask={deleteTask}
+              handleLogout={handleLogout}
+              memberForm={memberForm}
+              projectForm={projectForm}
+              projects={projects}
+              setMemberForm={setMemberForm}
+              setProjectForm={setProjectForm}
+              setStatusFilter={setStatusFilter}
+              setTaskForm={setTaskForm}
+              statusFilter={statusFilter}
+              submitMember={submitMember}
+              submitProject={submitProject}
+              submitTask={submitTask}
+              taskForm={taskForm}
+              tasks={tasks}
+              updateTaskStatus={updateTaskStatus}
+              user={user}
+              users={users}
+              view="admin"
+            />
+          </ProtectedRoute>
+        }
       />
       <Route path="*" element={<Navigate to={user ? viewPaths.dashboard : "/login"} replace />} />
     </Routes>
   );
+}
+
+function ProtectedRoute({ user, children }) {
+  const token = getStoredToken();
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!user) {
+    return <main className="loading-shell">Loading workspace...</main>;
+  }
+
+  return children;
 }
 
 function AppShell({
